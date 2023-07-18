@@ -28,7 +28,7 @@ To compress the data:
 
 bash
 
-    python pca.py --type compress --data path/to/your/data.npy --l 10
+    python pca.py --type compress --data path/to/your/data.npy --l 2
 
 This will compress the data with 10 coded vectors and save the compressed data as 'compressed_data.npy' and the decoding matrix as 'decoding_matrix.npy' in the current directory.
 
@@ -41,7 +41,22 @@ bash
 This will decompress the data using the provided compressed data and decoding matrix and save the reconstructed data as 'reconstructed.npy' in the current directory.
 Important Notes
 
-The script utilizes PCA to compress and decompress data, which is suitable for certain types of data with low redundancy. Keep in mind that PCA may not be the best choice for all types of data compression tasks.
+example.npy
+
+    [[1 2 3]
+     [2 4 5]
+     [3 5 6]]
+compressed_data.npy
+
+    [[-3.72093206 -6.70488789 -8.36085845]
+     [ 0.38008036  0.16915167 -0.30480078]]
+reconstructed.npy
+
+    [[0.94030074 2.07444375 2.96686941]
+     [2.07444375 3.90717016 5.04131317]
+     [2.96686941 5.04131317 5.98161391]]
+    
+The script utilizes PCA to compress and decompress data, Keep in mind that PCA may not be the best choice for all types of data compression tasks.
 Ensure that the input data is in Numpy format (.npy).
 Always remember to backup your original data before running any compression process, as compression can result in information loss.
 
