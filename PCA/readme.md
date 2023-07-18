@@ -9,6 +9,7 @@ Requirements
 Usage
 
 -Save your data in a Numpy format (.npy file).
+
 -Open the terminal and run the script with the desired arguments.
 
 Arguments
