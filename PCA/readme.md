@@ -39,7 +39,6 @@ bash
     python pca.py --type decompress --cdata path/to/compressed_data.npy --decode path/to/decoding_matrix.npy
 
 This will decompress the data using the provided compressed data and decoding matrix and save the reconstructed data as 'reconstructed.npy' in the current directory.
-Important Notes
 
 example.npy
 
@@ -55,6 +54,7 @@ reconstructed.npy
     [[0.94030074 2.07444375 2.96686941]
      [2.07444375 3.90717016 5.04131317]
      [2.96686941 5.04131317 5.98161391]]
+Important Notes
     
 The script utilizes PCA to compress and decompress data, Keep in mind that PCA may not be the best choice for all types of data compression tasks.
 Ensure that the input data is in Numpy format (.npy).
