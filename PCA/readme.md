@@ -40,9 +40,9 @@ bash
 This will decompress the data using the provided compressed data and decoding matrix and save the reconstructed data as 'reconstructed.npy' in the current directory.
 Important Notes
 
-    The script utilizes PCA to compress and decompress data, which is suitable for certain types of data with low redundancy. Keep in mind that PCA may not be the best choice for all types of data compression tasks.
-    Ensure that the input data is in Numpy format (.npy).
-    Always remember to backup your original data before running any compression process, as compression can result in information loss.
+The script utilizes PCA to compress and decompress data, which is suitable for certain types of data with low redundancy. Keep in mind that PCA may not be the best choice for all types of data compression tasks.
+Ensure that the input data is in Numpy format (.npy).
+Always remember to backup your original data before running any compression process, as compression can result in information loss.
 
 License
 
