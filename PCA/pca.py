@@ -32,4 +32,5 @@ if __name__ == "__main__":
     elif t == 'decompress':
         c, d = np.load(args.cdata), np.load(args.decode)
         x_hat = decompress(c, d)
+        print(x_hat)
         np.save('reconstructed.npy', x_hat)
