@@ -53,16 +53,17 @@ class MLP(nn.Module):
     for rbm in dbm.rbm_lst:
       l = nn.Linear(rbm.nv, rbm.nh)
       with torch.no_grad():
-        l.weight.copy_(rbm.W)
-        l.bias.copy_(rbm.b)
+        l.weight.copy_(rbm.W.T)
+        l.bias.copy_(rbm.c)
       self.modules_lst.append(l)
       self.modules_lst.append(nn.Sigmoid())
     self.fl = nn.Linear(dbm.rbm_lst[-1].nh, 10)
     self.sig = nn.Sigmoid()
-    
+   
   def forward(self, x):
-    y = self.modules_lst.forward(x)
-    y = self.sig(self.fl(y))
+    for module in self.modules_lst:
+      x = module(x)
+    y = self.sig(self.fl(x))
     return y
 
 
