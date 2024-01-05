@@ -4,7 +4,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import  DataLoader, Dataset
 from torchvision import datasets, transforms
-import matplotlib.pyplot as plt
 import torch.optim as optim
 import argparse
 
