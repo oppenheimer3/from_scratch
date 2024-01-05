@@ -68,7 +68,7 @@ class MLP(nn.Module):       #the multilayer perceptron class (deep neural networ
 
 
 
-def eval(model, test_loader, batch_size):   #the evaluation of MLP model's accuracy for the mnist dataset
+def eval(model, test_loader, batch_size, device):   #the evaluation of MLP model's accuracy for the mnist dataset
   model.eval()
   correct = 0
   total = len(test_loader.dataset)
@@ -83,7 +83,7 @@ def eval(model, test_loader, batch_size):   #the evaluation of MLP model's accur
   accuracy = correct / total * 100
   print(f'Accuracy: {accuracy}%')
 
-def dbn_train(dbn_model, train_loader, optimizer_lst, dbn_epochs, batch_size):    # DBN is trained by training the first RBM to model the marginal probability distribution of the data Pdata(v)
+def dbn_train(dbn_model, train_loader, optimizer_lst, dbn_epochs, batch_size, device):    # DBN is trained by training the first RBM to model the marginal probability distribution of the data Pdata(v)
   for i, rbm in enumerate(dbn_model.rbm_lst):                                     #then the next RBM to model the distribution of the first RBM's hidden units when it is driven by the data 
     for e in range(dbn_epochs + 1):                                               # and keep training the RBMs in the same way with each rbm modeling the hidden units of the provious one
       for (batch, _) in train_loader:
@@ -97,7 +97,7 @@ def dbn_train(dbn_model, train_loader, optimizer_lst, dbn_epochs, batch_size):  
       if e % 10 == 0:
         print(f"rbm: {i} step: {e}/{dbn_epochs} loss: {loss.item()}")
 
-def mlp_train(mlp_model, train_loader, optimizer, criterion, mlp_epochs, batch_size):   #MLP training loop 
+def mlp_train(mlp_model, train_loader, optimizer, criterion, mlp_epochs, batch_size, device):   #MLP training loop 
   for e in range(mlp_epochs + 1):
     for i, (data, labels )in enumerate(train_loader):
       data = data.view(batch_size, -1).to(device)
@@ -157,19 +157,19 @@ def main():
   dbn_model = DBN().to(device)
   optimizer_lst = [optim.Adam(rbm.parameters(), lr=dbn_lr) for rbm in dbn_model.rbm_lst]  #an optimizer for every RBM in the DBN
 
-  print(f"deep belief network training loop")
-  dbn_train(dbn_model, train_loader, optimizer_lst, dbn_epochs, batch_size)
+  print(f"deep belief network training loop:")
+  dbn_train(dbn_model, train_loader, optimizer_lst, dbn_epochs, batch_size, device)
 
   ### multilayer perceptron training and evaluation
   mlp_model = MLP(dbn_model).to(device)
   criterion = nn.CrossEntropyLoss().to(device)
   optimizer = optim.Adam(mlp_model.parameters(), lr=mlp_lr)
 
-  print(f"multilayer perceptron training loop")
-  mlp_train(mlp_model, train_loader, optimizer, criterion, mlp_epochs, batch_size)
+  print(f"multilayer perceptron training loop:")
+  mlp_train(mlp_model, train_loader, optimizer, criterion, mlp_epochs, batch_size, device)
 
   ###evaluation of the mlp model
-  eval(mlp_model, test_loader, batch_size)
+  eval(mlp_model, test_loader, batch_size, device)
 
 
   if args.save:
