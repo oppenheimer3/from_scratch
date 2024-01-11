@@ -16,7 +16,7 @@ class RBM(nn.Module):
     self.b = nn.Parameter(torch.normal(0, 1, size=[nv], dtype=torch.float32, requires_grad=True))
     self.c = nn.Parameter(torch.normal(0, 1, size=[nh], dtype=torch.float32, requires_grad=True))
     self.W = nn.Parameter(torch.normal(0, 1, size=(nv, nh), dtype=torch.float32, requires_grad=True))
-  
+
   def forward(self, v, h):
     return self.b @ v.T + self.c @ h.T + ((v @ self.W) * h).sum(dim=-1)
 
@@ -25,7 +25,7 @@ class RBM(nn.Module):
 
   def v_given_h(self, h):
     return self.b +  h @ self.W.T
-  
+
 
 class DBM(nn.Module):
   def __init__(self, layers) -> None:
@@ -37,14 +37,14 @@ class DBM(nn.Module):
 
   def forward(self, v, v_m, h_list):
     h_pmfs = [torch.rand(rbm.nh) for rbm in self.rbm_list]
-    h_pmfs = [v] + self.mean_field(v, h_pmfs)
-    positive_phase = torch.sum(torch.stack([rbm(h_pmfs[i], h_pmfs[i+1]) for i, rbm in enumerate(self.rbm_list)]))
+    h_pmfs = [v] +  self.mean_field(v, h_pmfs)
+    positive_phase = torch.sum(torch.stack([rbm(h_pmfs[i], h_pmfs[i+1]) for i, rbm in enumerate(self.rbm_list)]), dim=0)
     v_m, h_list = self.gibbs_update(v_m, h_list)
     v_h = [v_m] + h_list
-    negative_phase = torch.sum(torch.stack([rbm(v_h[i], v_h[i+1]) for i, rbm in enumerate(self.rbm_list)]))
-    llh = positive_phase - negative_phase     
-    # m = llh.size(0)     #number of samples
-    # llh = -(llh.sum())/m
+    negative_phase = torch.sum(torch.stack([rbm(v_h[i], v_h[i+1]) for i, rbm in enumerate(self.rbm_list)]), dim=0)
+    llh = positive_phase - negative_phase
+    m = llh.size(0)     #number of samples
+    llh = -(llh.sum())/m
     return llh, v_m, h_list
 
 
@@ -56,9 +56,9 @@ class DBM(nn.Module):
       he = list(map(torch.bernoulli, self.he_given_ho(ho)))
       he = [v] + he
       ho = list(map(torch.bernoulli, self.ho_given_he(he)))
-    h_list = [item for pair in zip(ho, he) for item in pair]
+    h_list = [item for pair in zip(ho, he[1:]) for item in pair]
     return v, h_list
-    
+
 
 
   def mean_field(self, v, h_pmfs):
@@ -68,7 +68,8 @@ class DBM(nn.Module):
       even_p = self.he_given_ho(odd_p)
       even_p = [v] + even_p
       odd_p = self.ho_given_he(even_p)
-    h_pmfs = [item for pair in zip(odd_p, even_p) for item in pair]
+    h_pmfs = [item for pair in zip(odd_p, even_p[1:]) for item in pair]
+    print(len(h_pmfs))
     return h_pmfs
 
 
@@ -78,27 +79,29 @@ class DBM(nn.Module):
 
   def he_given_ho(self, h_list):
     h_pmfs = []
+    even_rbm = self.rbm_list[::2]
     odd_rbm = self.rbm_list[1::2]
     for i, rbm in enumerate(odd_rbm):
       hf = rbm.h_given_v(h_list[i])
       if i < len(odd_rbm) - 1:
-        hb = odd_rbm[i+1].v_given_h(h_list[i+1])
-      else: hb = 0
-      h = self.sig(hf + hb)
-      h_pmfs.append(h)
-    return h_pmfs
-  
-  def ho_given_he(self, h_list):
-    h_pmfs = []
-    even_rbm = self.rbm_list[::2]
-    for i, rbm in enumerate(even_rbm):
-      hf = rbm.h_given_v(h_list[i])
-      if i < len(even_rbm) - 1:
         hb = even_rbm[i+1].v_given_h(h_list[i+1])
       else: hb = 0
       h = self.sig(hf + hb)
       h_pmfs.append(h)
     return h_pmfs
+
+  def ho_given_he(self, h_list):
+    h_pmfs = []
+    even_rbm = self.rbm_list[::2]
+    odd_rbm = self.rbm_list[1::2]
+    for i, rbm in enumerate(even_rbm):
+      hf = rbm.h_given_v(h_list[i])
+      if i < len(even_rbm) - 1:
+        hb = odd_rbm[i].v_given_h(h_list[i+1])
+      else: hb = 0
+      h = self.sig(hf + hb)
+      h_pmfs.append(h)
+    return h_pmfss
 
 
 
