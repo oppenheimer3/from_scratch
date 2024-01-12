@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import torch.optim as optim
 import argparse
 
-
 class RBM(nn.Module):
   def __init__(self, nv, nh) -> None:
     super().__init__()
@@ -37,39 +36,45 @@ class DBM(nn.Module):
 
   def forward(self, v, v_m, h_list):
     h_pmfs = [torch.rand(rbm.nh) for rbm in self.rbm_list]
-    h_pmfs = [v] +  self.mean_field(v, h_pmfs)
+    h_pmfs = [h_pmf.to(device) for h_pmf in h_pmfs]
+    with torch.no_grad():
+      h_pmfs = self.mean_field(v, h_pmfs)
+      h_list = self.gibbs_update(v_m, h_list)
+
     positive_phase = torch.sum(torch.stack([rbm(h_pmfs[i], h_pmfs[i+1]) for i, rbm in enumerate(self.rbm_list)]), dim=0)
-    v_m, h_list = self.gibbs_update(v_m, h_list)
-    v_h = [v_m] + h_list
+    v_h =  h_list
     negative_phase = torch.sum(torch.stack([rbm(v_h[i], v_h[i+1]) for i, rbm in enumerate(self.rbm_list)]), dim=0)
     llh = positive_phase - negative_phase
     m = llh.size(0)     #number of samples
     llh = -(llh.sum())/m
-    return llh, v_m, h_list
+    return llh, h_list[0], h_list[1:]
 
 
   def gibbs_update(self, v, h_list):
     he = h_list[1::2]
     ho = h_list[::2]
-    for i in range(10):
+    for i in range(50):
       v = self.v_given_h1(ho[0])
       he = list(map(torch.bernoulli, self.he_given_ho(ho)))
       he = [v] + he
       ho = list(map(torch.bernoulli, self.ho_given_he(he)))
-    h_list = [item for pair in zip(ho, he[1:]) for item in pair]
-    return v, h_list
+    h_list = [item for pair in zip(he, ho) for item in pair]
+    if len(he) != len(ho):
+      h_list = h_list + [max([he, ho], key=len)[-1]]
+    return h_list
 
 
 
   def mean_field(self, v, h_pmfs):
     odd_p = h_pmfs[::2]
     even_p = h_pmfs[1::2]
-    for i in range(10):
+    for i in range(50):
       even_p = self.he_given_ho(odd_p)
       even_p = [v] + even_p
       odd_p = self.ho_given_he(even_p)
-    h_pmfs = [item for pair in zip(odd_p, even_p[1:]) for item in pair]
-    print(len(h_pmfs))
+    h_pmfs = [item for pair in zip(even_p, odd_p) for item in pair]
+    if len(even_p) != len(odd_p):
+      h_pmfs = h_pmfs + [max([even_p, odd_p], key=len)[-1]]
     return h_pmfs
 
 
@@ -101,10 +106,89 @@ class DBM(nn.Module):
       else: hb = 0
       h = self.sig(hf + hb)
       h_pmfs.append(h)
-    return h_pmfss
+    return h_pmfs
+  
 
 
+def train(model, v_m, h_list, train_loader, optimizer, batch_size, epochs,device):
+  for i in range(epochs + 1):
+    for batch in train_loader:
+      b = batch.view(batch_size, -1).to(device)
+      loss, v_m, h_list = model(b, v_m, h_list)  
+      optimizer.zero_grad()
+      loss.backward()
+      optimizer.step()
+    if i % 1 == 0:
+      print(f"step: {i}/{epochs} loss: {loss.item()}")
+  show_imgs(model(b,v_m,h_list)[1].cpu())
+
+def show_imgs(img_tensors):
+  fig, axs = plt.subplots(nrows=10, ncols=10)
+  for i in range(100):
+    axs[i//10, i%10].imshow(img_tensors[i].view(28, 28), cmap='binary_r')
+    axs[i//10, i%10].set_axis_off()
+  plt.savefig('model_samples.png')
+  plt.show()
+
+def main():
+
+  """Parses the arguments for training a DBM."""
+  parser = argparse.ArgumentParser()
+  parser.add_argument(
+    "--batch", type=int, default=200, help="Batch size for training.")
+  parser.add_argument(
+    "--epochs", type=int, default=10, help="Number of epochs for training.")
+  parser.add_argument(
+    "--lr", type=float, default=0.001, help="Learning rate for training.")
+  parser.add_argument(
+    "--nh", type=int, default=1000, help="Number of hidden units for the RBM.")
+  parser.add_argument(
+    "--k", type=int, default=50, help="Number of Gibbs steps during training")
+  parser.add_argument(
+    '--save', help='Save the model after training', action='store_true')
+
+  
+  args = parser.parse_args()
+
+  batch_size = args.batch
+  epochs = args.epochs
+  lr = args.lr
+  nh = args.nh
+  k = args.k
 
 
+  device = "cuda" if torch.cuda.is_available() else "cpu"
 
+
+  batch_size = 200
+  epochs = 10
+  lr = 0.001
+  arch = [(784, 2000), (2000, 1000)]
+
+
+  device = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+  #the data used is mnist
+  data = datasets.MNIST(
+              root='~/.pytorch/MNIST_data/',
+              download=True
+          ).data
+  data = torch.where(data > 1, torch.tensor(1), torch.tensor(0)).to(torch.float32)  #here i transform it into binary form just 0 and 1 pixels because the model has binary units
+
+  print(f"Training device: {device}")
+
+  train_loader = DataLoader(dataset=data, batch_size=batch_size, shuffle=True)
+
+  model = DBM(arch).to(device)
+  optimizer = optim.Adam(model.parameters(), lr=lr)
+  v_m = torch.bernoulli(torch.rand(batch_size,784)).to(device)
+  h_list = [torch.rand([batch_size, a[1]]).to(device) for a in arch]
+  h_list = list(map(torch.bernoulli, h_list))
+
+  train(model, v_m, h_list, train_loader, optimizer, batch_size, epochs,device)
+
+
+if __name__ == "__main__":
+  main()
 
