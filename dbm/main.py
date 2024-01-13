@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import torch.optim as optim
 import argparse
 
-class RBM(nn.Module):
+class RBM(nn.Module):    #the restricted boltzman machine class that form the DBM
   def __init__(self, nv, nh) -> None:
     super().__init__()
     self.nv = nv  #the number of visible units
@@ -16,48 +16,48 @@ class RBM(nn.Module):
     self.c = nn.Parameter(torch.normal(0, 1, size=[nh], dtype=torch.float32, requires_grad=True))
     self.W = nn.Parameter(torch.normal(0, 1, size=(nv, nh), dtype=torch.float32, requires_grad=True))
 
-  def forward(self, v, h):
+  def forward(self, v, h):  #the unormalized probability distribution
     return self.b @ v.T + self.c @ h.T + ((v @ self.W) * h).sum(dim=-1)
 
-  def h_given_v(self, v):
+  def h_given_v(self, v):  # conditional p(h|v)
     return self.c + v @ self.W
 
-  def v_given_h(self, h):
+  def v_given_h(self, h):   # conditional p(v|h)
     return self.b +  h @ self.W.T
 
 
-class DBM(nn.Module):
-  def __init__(self, layers) -> None:
+class DBM(nn.Module):   #deep boltzman machine class
+  def __init__(self, layers, n, k) -> None: 
     super().__init__()
-    self.rbm_list = nn.ModuleList()
+    self.n = n   #gibbs updates
+    self.k = k   #mean field updates
+    self.rbm_list = nn.ModuleList()   # rbm layers
     for layer in layers:
       self.rbm_list.append(RBM(*layer))
     self.sig = nn.Sigmoid()
 
-  def forward(self, v, v_m, h_list):
-    h_pmfs = [torch.rand(rbm.nh) for rbm in self.rbm_list]
-    h_pmfs = [h_pmf.to(device) for h_pmf in h_pmfs]
-    with torch.no_grad():
-      h_pmfs = self.mean_field(v, h_pmfs)
-      h_list = self.gibbs_update(v_m, h_list)
+  def forward(self, v, v_m, h_list, h_pmfs):
 
+    with torch.no_grad():
+      h_pmfs = self.mean_field(v, h_pmfs)    #mean field parameters 
+      h_list = self.gibbs_update(v_m, h_list)  #models units including the visible
     positive_phase = torch.sum(torch.stack([rbm(h_pmfs[i], h_pmfs[i+1]) for i, rbm in enumerate(self.rbm_list)]), dim=0)
     v_h =  h_list
     negative_phase = torch.sum(torch.stack([rbm(v_h[i], v_h[i+1]) for i, rbm in enumerate(self.rbm_list)]), dim=0)
-    llh = positive_phase - negative_phase
+    llh = positive_phase - negative_phase   ## evidence lower bound
     m = llh.size(0)     #number of samples
     llh = -(llh.sum())/m
-    return llh, h_list[0], h_list[1:]
+    return llh, h_list[0], h_list[1:]   #return the evidence lower bound expectation and visible units and latent variables
 
 
-  def gibbs_update(self, v, h_list):
+  def gibbs_update(self, v, h_list):    ## gibbs update takes adventage of the bipartie architucture
     he = h_list[1::2]
     ho = h_list[::2]
-    for i in range(50):
+    for _ in range(self.k):
       v = self.v_given_h1(ho[0])
-      he = list(map(torch.bernoulli, self.he_given_ho(ho)))
+      he = list(map(torch.bernoulli, self.he_given_ho(ho)))   ## update the even layers given the odd layers
       he = [v] + he
-      ho = list(map(torch.bernoulli, self.ho_given_he(he)))
+      ho = list(map(torch.bernoulli, self.ho_given_he(he)))   ## update the odd layers given the even ones
     h_list = [item for pair in zip(he, ho) for item in pair]
     if len(he) != len(ho):
       h_list = h_list + [max([he, ho], key=len)[-1]]
@@ -65,10 +65,10 @@ class DBM(nn.Module):
 
 
 
-  def mean_field(self, v, h_pmfs):
+  def mean_field(self, v, h_pmfs):    ## same as gibbs update but calculate the mean field parameters
     odd_p = h_pmfs[::2]
     even_p = h_pmfs[1::2]
-    for i in range(50):
+    for i in range(self.n):
       even_p = self.he_given_ho(odd_p)
       even_p = [v] + even_p
       odd_p = self.ho_given_he(even_p)
@@ -79,10 +79,10 @@ class DBM(nn.Module):
 
 
 
-  def v_given_h1(self, h):
+  def v_given_h1(self, h):       ##  the visible units given the first latent layer
     return torch.bernoulli(self.sig(self.rbm_list[0].v_given_h(h)))
 
-  def he_given_ho(self, h_list):
+  def he_given_ho(self, h_list):  ## even layers given odd layers update
     h_pmfs = []
     even_rbm = self.rbm_list[::2]
     odd_rbm = self.rbm_list[1::2]
@@ -95,7 +95,7 @@ class DBM(nn.Module):
       h_pmfs.append(h)
     return h_pmfs
 
-  def ho_given_he(self, h_list):
+  def ho_given_he(self, h_list):    ## odd layers given even ones update
     h_pmfs = []
     even_rbm = self.rbm_list[::2]
     odd_rbm = self.rbm_list[1::2]
@@ -109,19 +109,23 @@ class DBM(nn.Module):
     return h_pmfs
   
 
-
-def train(model, v_m, h_list, train_loader, optimizer, batch_size, epochs,device):
+##the training loop
+def train(model, v_m, h_list, train_loader, optimizer, batch_size, epochs,device): 
   for i in range(epochs + 1):
     for batch in train_loader:
+      h_pmfs = [torch.rand(rbm.nh) for rbm in model.rbm_list]
+      h_pmfs = [h_pmf.to(device) for h_pmf in h_pmfs]
       b = batch.view(batch_size, -1).to(device)
-      loss, v_m, h_list = model(b, v_m, h_list)  
+      loss, v_m, h_list = model(b, v_m, h_list, h_pmfs)  
       optimizer.zero_grad()
       loss.backward()
       optimizer.step()
     if i % 1 == 0:
       print(f"step: {i}/{epochs} loss: {loss.item()}")
-  show_imgs(model(b,v_m,h_list)[1].cpu())
+  show_imgs(model(b,v_m,h_list, h_pmfs)[1].cpu())
 
+
+## to show the results
 def show_imgs(img_tensors):
   fig, axs = plt.subplots(nrows=10, ncols=10)
   for i in range(100):
@@ -141,9 +145,11 @@ def main():
   parser.add_argument(
     "--lr", type=float, default=0.001, help="Learning rate for training.")
   parser.add_argument(
-    "--nh", type=int, default=1000, help="Number of hidden units for the RBM.")
+    "--arc", type=str, default="784, 200, 100", help="Model architucture ex: '784, 200, 100'")
   parser.add_argument(
-    "--k", type=int, default=50, help="Number of Gibbs steps during training")
+    "--n", type=int, default=1, help="Number of Mean field update steps during training")
+  parser.add_argument(
+    "--k", type=int, default=1, help="Number of Gibbs steps during training")
   parser.add_argument(
     '--save', help='Save the model after training', action='store_true')
 
@@ -153,20 +159,15 @@ def main():
   batch_size = args.batch
   epochs = args.epochs
   lr = args.lr
-  nh = args.nh
+  arch = list(map(int, args.arc.split(',')))
+  arch = [(arch[i], arch[i+1]) for i in range(len(arch)-1)]
+  n = args.n
   k = args.k
+  
 
 
   device = "cuda" if torch.cuda.is_available() else "cpu"
 
-
-  batch_size = 200
-  epochs = 10
-  lr = 0.001
-  arch = [(784, 2000), (2000, 1000)]
-
-
-  device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
   #the data used is mnist
@@ -180,7 +181,7 @@ def main():
 
   train_loader = DataLoader(dataset=data, batch_size=batch_size, shuffle=True)
 
-  model = DBM(arch).to(device)
+  model = DBM(arch, n, k).to(device)
   optimizer = optim.Adam(model.parameters(), lr=lr)
   v_m = torch.bernoulli(torch.rand(batch_size,784)).to(device)
   h_list = [torch.rand([batch_size, a[1]]).to(device) for a in arch]
