@@ -1,4 +1,4 @@
-# Restricted Boltzmann Machine Example
+# Deep Boltzmann Machine (DBM) Example
 
 This DBM implementation is based on algorithm 20.1 of [deep learning book](https://www.deeplearningbook.org/) (page 670). It maximizes the evidence lower bound to approximate the intractable log-likelihood `p(v)` and uses the mean-field approach to approximate the posterior `p(h|v)`. Additionally, it incorporates the PCD-k algorithm and Markov Chain Monte Carlo (MCMC) to approximate model samples in the negative phase.
 
