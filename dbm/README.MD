@@ -28,4 +28,5 @@ python main.py
 
 ## Results:
 Models samples at epoch 10:
+
 ![Sample Image](images/model_samples.png)
