@@ -25,11 +25,12 @@ class VAE(nn.Module):
     pv_z =  self.pv_z(x, z)
     E_px_v = torch.mean(torch.log(pv_z))
     Dkl = torch.mean(self.pz.log_prob(z) - q.log_prob(z))
-    return pv_z
+    l = E_px_v + Dkl
+    return l
 
   def encoder(self, x):
-    mean = self.softplus(self.l0(x))
-    covariance = self.softplus(self.l1(x))
+    mean = torch.mean(self.softplus(self.l0(x)), axis=0)
+    covariance = torch.mean(self.softplus(self.l1(x)), axis=0)
     return mean, covariance
 
   def decoder(self, z):
@@ -37,8 +38,9 @@ class VAE(nn.Module):
 
   def pv_z(self, x, z):
     p = self.decoder(z)
-    print(p.shape)
-    return torch.prod(self.sig((2*x - 1) * p), axis=1)
+    x = x.unsqueeze(1)
+    return torch.prod(self.sig((2*x - 1) * p), axis=-1)
 
-  
+
+ 
 
