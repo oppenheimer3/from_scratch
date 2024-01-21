@@ -54,7 +54,44 @@ def loss(x, y, mu, std):
     return -l
 
 
+def evidence_lower_bound(x,recon_x, mu, logvar):
+    E_px_v = F.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
 
+    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+
+    return E_px_v + KLD
+    
+    
+    
+
+batch_size = 200
+epochs = 10
+lr = 0.01
+device = "cuda" if torch.cuda.is_available() else "cpu"
+#the data used is mnist
+data = datasets.MNIST(
+            root='~/.pytorch/MNIST_data/',
+            download=True
+        ).data
+data = torch.where(data > 1, torch.tensor(1), torch.tensor(0)).to(torch.float32)  #here i transform it into binary form just 0 and 1 pixels because the model has binary units
+
+print(f"Training device: {device}")
+
+train_loader = DataLoader(dataset=data, batch_size=batch_size, shuffle=True)
+
+
+
+model = VAE().to(device)
+optimizer = optim.Adam(model.parameters(), lr=lr)
+for i in range(epochs + 1):
+  for batch in train_loader:
+    b = batch.view(batch_size, -1).to(device)
+    loss = evidence_lower_bound(b, *model(b))
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+  if i % 1 == 0:
+    print(f"step: {i}/{epochs} loss: {loss.item()}")
 
   
 
