@@ -25,13 +25,13 @@ main.py [-h] [--batch BATCH] [--epochs EPOCHS] [--lr LR] [--save]
 ## Results:
 Models results at epoch 10:
 
-![Sample Image](images/reconstruction.png)
-
 `Reconstruction results`
 
+![Sample Image](images/reconstruction.png)
+
+`Model samples`
 
 ![Sample Image](images/model_samples.png)
 
-`Model samples`
 
 
