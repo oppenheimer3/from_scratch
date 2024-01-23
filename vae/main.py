@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import torch.optim as optim
 import argparse
 
+
+## variational autoencoder with gaussian posterior
 class VAE(nn.Module):
   def __init__(self):
     super().__init__()
@@ -18,12 +20,12 @@ class VAE(nn.Module):
 
   def forward(self, x):
     mu, std = self.encoder(x)
-    eps = torch.rand([10, 20]).unsqueeze(1).to(x.device)
-    z = mu + eps * std
+    eps = torch.rand([10, 20]).unsqueeze(1).to(x.device)   ## sample 10 z tensors for monte carlo approximation oF
+    z = mu + eps * std                                    ## the expectation when z is drawn from the postertior
     return self.decoder(z).mean(axis=0), mu, std
 
 
-  def encoder(self, x):
+  def encoder(self, x):   #the encoder returns the mean and standard deviation tensors
     return self.softplus(self.l0(x)), self.softplus(self.l1(x))
 
   def decoder(self, z):
@@ -34,7 +36,7 @@ class VAE(nn.Module):
       z = torch.rand([n, 20]).cuda()
       return torch.bernoulli(self.decoder(z))
 
-
+## the loss function in the case of gaussian posterior
 def evidence_lower_bound(x,recon_x, mu, std):
     E_px_v = F.binary_cross_entropy(recon_x, x, reduction='none').mean(axis=0).sum()
 
