@@ -1,103 +1,121 @@
 import torch
 import torch.nn as nn
-from torch.distributions.multivariate_normal import MultivariateNormal
+from torch.nn import functional as F
 from torch.utils.data import  DataLoader
 from torchvision import datasets
 import matplotlib.pyplot as plt
 import torch.optim as optim
 import argparse
 
+
+## variational autoencoder with gaussian posterior
 class VAE(nn.Module):
   def __init__(self):
     super().__init__()
-    self.l = nn.Linear(784, 500)
-    self.l0 = nn.Linear(500,100)
-    self.l1 = nn.Linear(500,100)
-    self.l2 = nn.Linear(100, 1000)
-    self.l3 = nn.Linear(1000, 784)
+    self.l = nn.Linear(20, 784)
+    self.l0 = nn.Linear(784,20)
+    self.l1 = nn.Linear(784,20)
     self.sig = nn.Sigmoid()
     self.softplus = nn.Softplus()
 
-
-
   def forward(self, x):
-    mu, log_var = self.encoder(x)
-    std = torch.exp(0.5 * log_var)
-    eps = torch.randn_like(std)
-    z = mu + eps * std 
-    return self.decoder(z), mu, std
+    mu, std = self.encoder(x)
+    eps = torch.rand([10, 20]).unsqueeze(1).to(x.device)   ## sample 10 z tensors for monte carlo approximation oF
+    z = mu + eps * std                                    ## the expectation when z is drawn from the postertior
+    return self.decoder(z).mean(axis=0), mu, std
 
 
-  def encoder(self, x):
-    x = self.softplus(self.l(x))
+  def encoder(self, x):   #the encoder returns the mean and standard deviation tensors
     return self.softplus(self.l0(x)), self.softplus(self.l1(x))
 
   def decoder(self, z):
-    z = self.softplus(self.l2(z))
-    return self.l3(z)
+    return self.sig(self.l(z))
+  
+  def sample(self, n):
+    with torch.no_grad():
+      z = torch.rand([n, 20]).cuda()
+      return torch.bernoulli(self.decoder(z))
 
+## the loss function in the case of gaussian posterior
+def evidence_lower_bound(x,recon_x, mu, std):
+    E_px_v = F.binary_cross_entropy(recon_x, x, reduction='none').mean(axis=0).sum()
 
-  def pv_z(self, x, z):
-    y = self.decoder(z)
-    x = x.unsqueeze(1)
-    return torch.prod(self.sig((2*x - 1) * y), axis=-1).clamp(min=1e-9)
-
-def loss(x, y, mu, std):
-    q = MultivariateNormal(loc=mu, covariance_matrix=torch.diag(std**2))
-    pz = MultivariateNormal(loc=torch.zeros_like(mu), covariance_matrix=torch.eye(100))
-    z = q.sample([10,])
-    x = x.unsqueeze(1)
-    pv_z = torch.prod(F.sigmoid((2*x - 1) * y), axis=-1).clamp(min=1e-9)
-    E_px_v = torch.mean(torch.log(pv_z))
-    Dkl = torch.mean(pz.log_prob(z) - q.log_prob(z))
-    l = E_px_v + Dkl
-    return -l
-
-
-def evidence_lower_bound(x,recon_x, mu, logvar):
-    E_px_v = F.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
-
-    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    KLD = -0.5 * torch.sum(torch.mean(1 + torch.log(std**2) - mu**2 - std**2, axis=0))
 
     return E_px_v + KLD
-    
-    
-    
 
-batch_size = 200
-epochs = 10
-lr = 0.01
-device = "cuda" if torch.cuda.is_available() else "cpu"
-#the data used is mnist
-data = datasets.MNIST(
-            root='~/.pytorch/MNIST_data/',
-            download=True
-        ).data
-data = torch.where(data > 1, torch.tensor(1), torch.tensor(0)).to(torch.float32)  #here i transform it into binary form just 0 and 1 pixels because the model has binary units
+## to show the results
+def show_imgs(img_tensors, name):
+  fig, axs = plt.subplots(nrows=10, ncols=10)
+  for i in range(100):
+    axs[i//10, i%10].imshow(img_tensors[i].view(28, 28), cmap='binary_r')
+    axs[i//10, i%10].set_axis_off()
+  plt.savefig(name)
+  plt.show()
 
-print(f"Training device: {device}")
+##the training loop
+def train(model, train_loader, optimizer, batch_size, epochs,device): 
+    for i in range(epochs + 1):
+        for batch in train_loader:
+            b = batch.view(batch_size, -1).to(device)
+            loss = evidence_lower_bound(b, *model(b))
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+    if i % 10 == 0:
+        print(f"step: {i}/{epochs} loss: {loss.item()}")
+    with torch.no_grad():
+        show_imgs(torch.bernoulli(model(b)[0].cpu()), 'reconstruction.png')
+        show_imgs(model.sample(100).cpu(), 'model_samples.png')
 
-train_loader = DataLoader(dataset=data, batch_size=batch_size, shuffle=True)
 
 
+def main():
 
-model = VAE().to(device)
-optimizer = optim.Adam(model.parameters(), lr=lr)
-for i in range(epochs + 1):
-  for batch in train_loader:
-    b = batch.view(batch_size, -1).to(device)
-    loss = evidence_lower_bound(b, *model(b))
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
-  if i % 1 == 0:
-    print(f"step: {i}/{epochs} loss: {loss.item()}")
+  """Parses the arguments for training a DBM."""
+  parser = argparse.ArgumentParser()
+  parser.add_argument(
+    "--batch", type=int, default=200, help="Batch size for training.")
+  parser.add_argument(
+    "--epochs", type=int, default=10, help="Number of epochs for training.")
+  parser.add_argument(
+    "--lr", type=float, default=0.001, help="Learning rate for training.")
+  parser.add_argument(
+    '--save', help='Save the model after training', action='store_true')
 
   
+  args = parser.parse_args()
+
+  batch_size = args.batch
+  epochs = args.epochs
+  lr = args.lr
+  
+
+  device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 
+  #the data used is mnist
+  data = datasets.MNIST(
+              root='~/.pytorch/MNIST_data/',
+              download=True
+          ).data
+  data = torch.where(data > 1, torch.tensor(1), torch.tensor(0)).to(torch.float32)  #here i transform it into binary form just 0 and 1 pixels because the model has binary units
+
+  print(f"Training device: {device}")
+
+  train_loader = DataLoader(dataset=data, batch_size=batch_size, shuffle=True)
+
+  model = VAE().to(device)
+  optimizer = optim.Adam(model.parameters(), lr=lr)
+
+  train(model, train_loader, optimizer, batch_size, epochs,device)
 
 
- 
+  if args.save:
+      torch.save(model.state_dict(), "mlp.pt")
+
+
+if __name__ == "__main__":
+  main()
 
