@@ -1,97 +1,183 @@
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
-from torch.utils.data import  DataLoader
-from torchvision import datasets
-import torchvision.transforms as transforms
-import matplotlib.pyplot as plt
 import torch.optim as optim
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
+from torchvision.utils import save_image
+import os
 import argparse
 
-
 device = "cuda" if torch.cuda.is_available() else "cpu"
-batch_size = 200
-epochs = 100
-lr = 0.0001
+
+# Set random seed for reproducibility
+torch.manual_seed(42)
 
 
 
-#the data used is mnist
-data = datasets.MNIST(
-            root='./data',
-            download=True
-        ).data
-# data = torch.where(data > 1, torch.tensor(1), torch.tensor(0)).to(torch.float32)  #here i transform it into binary form just 0 and 1 pixels
-data = (data/255).to(torch.float32)
-print(f"Training device: {device}")
+# Create output directories
+os.makedirs("images", exist_ok=True)
+os.makedirs("models", exist_ok=True)
 
-train_loader = DataLoader(dataset=data, batch_size=200, shuffle=True)
-
-
+# Define the generator network
 class Generator(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.f1 = nn.Linear(100, 500)
-        self.f2 = nn.Linear(500,784)
-        self.sig = nn.Sigmoid()
-        self.sofplus = nn.Softplus()
-    def forward(self, z):
-        z = self.sofplus(self.f1(z))
-        return self.sig(self.f2(z))
+    def __init__(self, l, c):
+        super(Generator, self).__init__()
+        self.model = nn.Sequential(
+            nn.ConvTranspose2d(l, 256, 7, 1, 0),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(256, 128, 4, 2, 1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(128, c, 4, 2, 1),
+            nn.Tanh()
+        )
 
-class Discriminator(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.f1 = nn.Linear(784,1)
-        self.sig = nn.Sigmoid()
     def forward(self, x):
-      return self.sig(self.f1(x))
+        return self.model(x)
 
-gen = Generator().to(device)
-dis = Discriminator().to(device)
-d_optimizer = optim.Adam(dis.parameters(), lr = lr)
-g_optimizer = optim.Adam(gen.parameters(), lr = lr)
-criterion = nn.BCELoss()
+# Define the discriminator network
+class Discriminator(nn.Module):
+    def __init__(self, c):
+        super(Discriminator, self).__init__()
+        self.model = nn.Sequential(
+            nn.Conv2d(c, 128, 4, 2, 1),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(128, 256, 4, 2, 1),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(256, 1, 7, 1, 0),
+            nn.Sigmoid()
+        )
 
-
-ones = torch.ones(batch_size).to(device)
-zeros = torch.zeros(batch_size).to(device)
-for i in range(100 + 1):
-    for j, batch in enumerate(train_loader):
-        z = torch.randn([batch_size, 100]).to(device)
-        b = batch.view(batch_size, -1).to(device)
-        d_optimizer.zero_grad()
-        loss = criterion(dis(b).view(-1), ones)
-        fake = gen(z)
-        d = dis(fake.detach()).view(-1)
-        loss = loss + criterion(d, zeros)
-        loss.backward()
-
-        d_optimizer.step()
-
-        if j % 2 ==0:
-          g_optimizer.zero_grad()
-          d_m = dis(fake).view(-1)
-          loss2 = criterion(d_m, ones)
-          loss2.backward()
-          g_optimizer.step()
-
-    if i % 1 == 0:
-      print(f"step: {i}/{epochs} loss generator: {loss2.item()}")
-      print(f"step: {i}/{epochs} loss discriminitor: {(loss).item()}")
-      print(f"d: {d.mean()}")
-torch.save(gen.state_dict(), "mlp.pt")
+    def forward(self, x):
+        return self.model(x)
 
 
-def show_imgs(img_tensors, name):
-  fig, axs = plt.subplots(nrows=10, ncols=10)
-  for i in range(100):
-    axs[i//10, i%10].imshow(img_tensors[i].view(28, 28), cmap='binary_r', vmin=0, vmax=1)
-    axs[i//10, i%10].set_axis_off()
-  plt.savefig(name)
-  plt.show()
-with torch.no_grad():
-  show_imgs(gen(torch.randn([100, 100]).to(device)).cpu(), 'model_samples.png')
+def train(dataloader, generator, discriminator, optimizer_D, optimizer_G, criterion, epochs, batch_size, l):
+  print("Training loop...")
+  print("-----------------")
+      # Training loop
+  for epoch in range(epochs + 1):
+      for i, (real_imgs, _) in enumerate(dataloader ):
+          # Adversarial ground truths
+          ones = torch.ones(batch_size, device=device)
+          zeros = torch.zeros(batch_size, device=device)
 
-    
-    
+          # Configure input
+          real_imgs = real_imgs.to(device)
+
+          # -------------------
+          # Train Generator
+          # -------------------
+          optimizer_G.zero_grad()
+
+          # Generate a batch of images
+          z = torch.randn(batch_size, l, 1, 1, device=device)
+          gen_imgs = generator(z)
+
+          # Generator loss
+          g_loss = criterion(discriminator(gen_imgs).view(-1), ones)
+
+          # Backward and optimize
+          g_loss.backward()
+          optimizer_G.step()
+
+          # -------------------
+          # Train Discriminator
+          # -------------------
+          optimizer_D.zero_grad()
+
+          # Discriminator loss on real images
+          d_real_loss = criterion(discriminator(real_imgs).view(-1), ones)
+
+          # Discriminator loss on generated images
+          d_gen_loss = criterion(discriminator(gen_imgs.detach()).view(-1), zeros)
+
+          # Total discriminator loss
+          d_loss = d_real_loss + d_gen_loss
+
+          # Backward and optimize
+          d_loss.backward()
+          optimizer_D.step()
+
+          if i % 100 == 0:
+                  print(f"Epoch [{epoch}/{epochs}], Batch [{i}/{len(dataloader)}]:")
+                  print(f"   Generator Loss: {g_loss.item():.4f} | Discriminator Loss: {d_loss.item():.4f} ")
+                  print(f"   d(G(z)): {'%.2f' % discriminator(gen_imgs.detach()).mean()} | d(x): {'%.2f' % discriminator(real_imgs).mean()}\n")
+  
+        # Save generated images at the end of each epoch
+      with torch.no_grad():
+          zeros_images = generator(torch.randn(25, l, 1, 1, device=device))
+          save_image(zeros_images, f"images/epoch_{epoch+1}.png", nrow=5, normalize=True)
+  
+  print("Training ended.")          
+
+
+
+
+def main():
+  """Parses the arguments for training a DBM."""
+  parser = argparse.ArgumentParser()
+  parser.add_argument(
+    "--batch", type=int, default=50, help="Batch size for training.")
+  parser.add_argument(
+    "--epochs", type=int, default=5, help="Number of epochs for training.")
+  parser.add_argument(
+  "--latent_dim", type=int, default=100, help="Latent dimension")
+  parser.add_argument(
+    "--lr", type=float, default=0.0002, help="Learning rate for training.")
+  parser.add_argument(
+    '--save', help='Save the model after training', action='store_true')
+
+  
+  args = parser.parse_args()
+
+
+  # Hyperparameters
+  batch_size = args.batch
+  epochs = args.epochs
+  lr = args.lr
+  latent_dim = args.latent_dim
+  save = args.save
+  channels = 1
+  beta1 = 0.5
+
+
+
+
+  # Initialize networks and optimizers
+  generator = Generator(latent_dim, channels)
+  discriminator = Discriminator(channels)
+
+  generator.to(device)
+  discriminator.to(device)
+
+  optimizer_G = optim.Adam(generator.parameters(), lr=lr, betas=(beta1, 0.999))
+  optimizer_D = optim.Adam(discriminator.parameters(), lr=lr, betas=(beta1, 0.999))
+
+  # Loss function
+  criterion = nn.BCELoss()
+
+  # Load MNIST dataset
+  transform = transforms.Compose([
+      transforms.ToTensor(),
+      transforms.Normalize((0.5,), (0.5,))
+  ])
+
+  mnist_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+  dataloader = DataLoader(mnist_dataset, batch_size=batch_size, shuffle=True)
+
+  train(dataloader, generator, discriminator, optimizer_D, optimizer_G, criterion, epochs, batch_size, latent_dim)
+
+
+
+
+  # Save models
+  if save:
+    torch.save(generator.state_dict(), "models/generator.pth")
+    torch.save(discriminator.state_dict(), "models/discriminator.pth")
+
+
+if __name__ == "__main__":
+    main()
