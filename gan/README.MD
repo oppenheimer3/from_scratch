@@ -26,8 +26,6 @@ usage: main.py [-h] [--batch BATCH] [--epochs EPOCHS] [--latent_dim LATENT_DIM] 
 ## Results:
 Models results at epoch 5:
 
-`Model samples`
-
 ![Sample Image](images/model_samples.png)
 
 
