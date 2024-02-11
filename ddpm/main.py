@@ -31,7 +31,7 @@ class DDPM(nn.Module):
     return self.model(x)
 #-------------------------------------------------
 
-# the reverse process for sampling
+# the reverse process for sampling "algorithm 2"
   
 #-------------------------------------------------
 
